@@ -29,6 +29,7 @@ new #[Title('Scan / Add Product')] class extends Component {
     public string $size = '';
     public ?int $category_id = null;
     public $imageUpload = null;
+    public $barcodeImageUpload = null; // New requirement
 
     // --- User-Specific Pivot Fields (Always Used) ---
     public $price = '';
@@ -96,7 +97,7 @@ new #[Title('Scan / Add Product')] class extends Component {
         $this->showRegisterConfirm = false;
         $this->manualEntry = false;
 
-        $this->statusMessage = 'New barcode detected. Fill in the product details to register it globally.';
+        $this->statusMessage = 'New barcode detected. Please provide photos to verify this product.';
         $this->statusType = 'info';
         $this->dispatch('stop-camera');
     }
@@ -110,13 +111,18 @@ new #[Title('Scan / Add Product')] class extends Component {
     {
         $this->newScan();
         $this->manualEntry = true;
-        $this->statusMessage = 'Manual Entry: No barcode required. Fill in both global and personal details.';
+        $this->statusMessage = 'Manual Entry: No barcode required. Provide a product photo for verification.';
         $this->statusType = 'info';
     }
 
     public function save(): void
     {
-        // 1. Base Validation (Always needed for Pivot)
+        if (!Auth::check()) {
+            $this->redirect(route('login'), navigate: true);
+            return;
+        }
+
+        // 1. Pivot Validation (Always Required)
         $rules = [
             'price' => 'required|numeric|min:0',
             'store_id' => 'nullable|exists:stores,id',
@@ -125,14 +131,22 @@ new #[Title('Scan / Add Product')] class extends Component {
             'pieces_per_bulk' => 'required|integer|min:1',
         ];
 
-        // 2. Add Global Validation if it's a completely new product
+        // 2. Global Validation (Images required if new)
         if (!$this->isExistingGlobal) {
-            $rules['barcode'] = 'nullable|string|max:255|unique:products,barcode';
             $rules['name'] = 'required|string|max:255';
             $rules['description'] = 'nullable|string';
             $rules['size'] = 'nullable|string|max:50';
-            $rules['category_id'] = 'nullable|exists:categories,id';
-            $rules['imageUpload'] = 'nullable|image|max:2048';
+            $rules['category_id'] = 'required|exists:categories,id';
+            $rules['imageUpload'] = 'required|image|max:2048'; // Product Image always required for new items
+
+            if (!$this->manualEntry) {
+                // If it has a barcode, the barcode image is required to verify it
+                $rules['barcode'] = 'required|string|max:255|unique:products,barcode';
+                $rules['barcodeImageUpload'] = 'required|image|max:2048';
+            } else {
+                // Tingi-tingi has no barcode
+                $rules['barcode'] = 'nullable|string|max:255|unique:products,barcode';
+            }
         }
 
         $validated = $this->validate($rules);
@@ -140,27 +154,30 @@ new #[Title('Scan / Add Product')] class extends Component {
 
         DB::beginTransaction();
         try {
-            // Step 1: Resolve the Product (Find or Create)
+            // Step 1: Resolve the Product
             if ($this->isExistingGlobal) {
                 $product = $this->foundProduct;
             } else {
                 $productData = [
-                    'barcode' => $this->barcode !== '' ? $this->barcode : null,
+                    'barcode' => !$this->manualEntry ? $this->barcode : null,
                     'name' => $validated['name'],
                     'description' => $validated['description'] ?? null,
                     'size' => $validated['size'] ?? null,
-                    'category_id' => $validated['category_id'] ?? null,
+                    'category_id' => $validated['category_id'],
                     'created_by' => Auth::id(),
+                    'status' => Auth::user()->is_admin ? 'approved' : 'pending', // Explicitly queue it for Admin Approval
                 ];
 
-                if ($this->imageUpload) {
-                    $productData['image_path'] = $this->imageUpload->store('products', 'public');
+                $productData['image_path'] = $this->imageUpload->store('products', 'public');
+
+                if (!$this->manualEntry && $this->barcodeImageUpload) {
+                    $productData['barcode_image_path'] = $this->barcodeImageUpload->store('barcodes', 'public');
                 }
 
                 $product = Product::create($productData);
             }
 
-            // Step 2: Prevent identical pivot duplicates (same store + same unit size)
+            // Step 2: Prevent duplicate pivot entries
             $pivotExists = DB::table('user_products')
                 ->where([
                     'user_id' => Auth::id(),
@@ -194,8 +211,15 @@ new #[Title('Scan / Add Product')] class extends Component {
             DB::commit();
 
             $successName = $validated['custom_name'] ?? $product->name;
+            $wasNew = !$this->isExistingGlobal;
+
             $this->newScan();
-            $this->statusMessage = "Successfully tracked \"{$successName}\".";
+
+            if ($wasNew) {
+                $this->statusMessage = "Successfully submitted \"{$successName}\" for admin review! You can track it locally right now.";
+            } else {
+                $this->statusMessage = "Successfully tracked \"{$successName}\".";
+            }
             $this->statusType = 'success';
         } catch (\Exception $e) {
             DB::rollBack();
@@ -217,6 +241,7 @@ new #[Title('Scan / Add Product')] class extends Component {
         $this->size = '';
         $this->category_id = null;
         $this->imageUpload = null;
+        $this->barcodeImageUpload = null;
 
         $this->price = '';
         $this->store_id = null;
@@ -312,7 +337,7 @@ new #[Title('Scan / Add Product')] class extends Component {
                         <p class="text-sm text-slate-500 dark:text-[#A1A1AA] mb-6">
                             The barcode <span
                                 class="font-mono font-bold text-slate-900 dark:text-white">{{ $pendingBarcode }}</span>
-                            isn't in the global catalog yet. Do you want to register it?
+                            isn't in the global catalog yet. Do you want to submit it for verification?
                         </p>
                         <div class="flex gap-3">
                             <button type="button" wire:click="cancelRegister"
@@ -321,7 +346,7 @@ new #[Title('Scan / Add Product')] class extends Component {
                             </button>
                             <button type="button" wire:click="confirmRegister"
                                 class="flex-1 px-4 py-2.5 bg-[#0E6B4C] hover:bg-opacity-90 text-white text-sm font-bold rounded-lg shadow-sm transition active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0E6B4C] dark:focus:ring-offset-[#1C1C1F]">
-                                Yes, register it
+                                Yes, submit it
                             </button>
                         </div>
                     </div>
@@ -338,13 +363,15 @@ new #[Title('Scan / Add Product')] class extends Component {
                     @if (!$isExistingGlobal)
                         <div class="space-y-5">
                             <h3 class="text-sm font-bold text-[#0E6B4C] dark:text-[#F2B705] uppercase tracking-wide">1.
-                                Global Product Details</h3>
+                                Submit for Global Catalog</h3>
+                            <p class="text-xs text-slate-500 dark:text-[#A1A1AA] -mt-3">This information will be sent to
+                                admins for approval.</p>
 
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
                                 <div>
                                     <label
                                         class="block text-xs font-bold text-slate-500 dark:text-[#A1A1AA] uppercase tracking-wide mb-1.5">Product
-                                        Name</label>
+                                        Name <span class="text-[#E2601F]">*</span></label>
                                     <input wire:model="name" type="text"
                                         class="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#101012] border border-slate-200 dark:border-[#2E2E32] text-slate-900 dark:text-white rounded-lg text-sm shadow-sm focus:ring-[#0E6B4C] focus:border-transparent transition-colors">
                                     @error('name')
@@ -355,8 +382,8 @@ new #[Title('Scan / Add Product')] class extends Component {
                                 <div>
                                     <label
                                         class="block text-xs font-bold text-slate-500 dark:text-[#A1A1AA] uppercase tracking-wide mb-1.5">Size
-                                        <span class="normal-case font-medium ml-1 text-slate-400">(e.g., 80ml,
-                                            1kg)</span></label>
+                                        <span class="normal-case font-medium ml-1 text-slate-400">(e.g.,
+                                            80ml)</span></label>
                                     <input wire:model="size" type="text"
                                         class="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#101012] border border-slate-200 dark:border-[#2E2E32] text-slate-900 dark:text-white rounded-lg text-sm shadow-sm focus:ring-[#0E6B4C] focus:border-transparent transition-colors">
                                     @error('size')
@@ -365,29 +392,34 @@ new #[Title('Scan / Add Product')] class extends Component {
                                 </div>
                             </div>
 
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                                <div>
-                                    <label
-                                        class="block text-xs font-bold text-slate-500 dark:text-[#A1A1AA] uppercase tracking-wide mb-1.5">Category</label>
-                                    <select wire:model="category_id"
-                                        class="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#101012] border border-slate-200 dark:border-[#2E2E32] text-slate-900 dark:text-white rounded-lg text-sm shadow-sm focus:ring-[#0E6B4C] focus:border-transparent transition-colors">
-                                        <option value="">-- Select Category --</option>
-                                        @foreach ($categories as $category)
-                                            <option value="{{ $category->id }}">{{ $category->name }}</option>
-                                        @endforeach
-                                    </select>
-                                    @error('category_id')
-                                        <p class="mt-1.5 text-xs font-semibold text-[#E2601F]">{{ $message }}</p>
-                                    @enderror
-                                </div>
+                            <div>
+                                <label
+                                    class="block text-xs font-bold text-slate-500 dark:text-[#A1A1AA] uppercase tracking-wide mb-1.5">Category
+                                    <span class="text-[#E2601F]">*</span></label>
+                                <select wire:model="category_id"
+                                    class="w-full px-4 py-2.5 bg-slate-50 dark:bg-[#101012] border border-slate-200 dark:border-[#2E2E32] text-slate-900 dark:text-white rounded-lg text-sm shadow-sm focus:ring-[#0E6B4C] focus:border-transparent transition-colors">
+                                    <option value="">-- Select Category --</option>
+                                    @foreach ($categories as $category)
+                                        <option value="{{ $category->id }}">{{ $category->name }}</option>
+                                    @endforeach
+                                </select>
+                                @error('category_id')
+                                    <p class="mt-1.5 text-xs font-semibold text-[#E2601F]">{{ $message }}</p>
+                                @enderror
+                            </div>
 
+                            <!-- Upload Verification Grid -->
+                            <div
+                                class="grid grid-cols-1 sm:grid-cols-2 gap-5 p-4 bg-slate-50 dark:bg-[#101012] border border-slate-200 dark:border-[#2E2E32] rounded-lg">
+
+                                <!-- Product Image (Always Required) -->
                                 <div>
                                     <label
                                         class="block text-xs font-bold text-slate-500 dark:text-[#A1A1AA] uppercase tracking-wide mb-1.5">Product
-                                        Image <span
-                                            class="normal-case font-medium ml-1 text-slate-400">(Optional)</span></label>
+                                        Image <span class="text-[#E2601F]">*</span></label>
                                     <input wire:model="imageUpload" type="file" accept="image/*"
-                                        class="w-full text-sm text-slate-500 dark:text-[#A1A1AA] file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-slate-100 dark:file:bg-[#2E2E32] file:text-slate-700 dark:file:text-white hover:file:bg-slate-200 dark:hover:file:bg-slate-700 transition">
+                                        class="w-full text-sm text-slate-500 dark:text-[#A1A1AA] file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-[#0E6B4C]/10 dark:file:bg-[#F2B705]/10 file:text-[#0E6B4C] dark:file:text-[#F2B705] hover:file:bg-[#0E6B4C]/20 transition">
+                                    <p class="text-[10px] text-slate-400 mt-1">Clear photo of the front label.</p>
                                     <div wire:loading wire:target="imageUpload"
                                         class="mt-2 text-xs font-medium text-[#0E6B4C]">Uploading...</div>
                                     @if ($imageUpload)
@@ -398,6 +430,28 @@ new #[Title('Scan / Add Product')] class extends Component {
                                         <p class="mt-1.5 text-xs font-semibold text-[#E2601F]">{{ $message }}</p>
                                     @enderror
                                 </div>
+
+                                <!-- Barcode Proof Image (Required unless manual/tingi) -->
+                                @if (!$manualEntry)
+                                    <div>
+                                        <label
+                                            class="block text-xs font-bold text-slate-500 dark:text-[#A1A1AA] uppercase tracking-wide mb-1.5">Barcode
+                                            Image <span class="text-[#E2601F]">*</span></label>
+                                        <input wire:model="barcodeImageUpload" type="file" accept="image/*"
+                                            class="w-full text-sm text-slate-500 dark:text-[#A1A1AA] file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-[#0E6B4C]/10 dark:file:bg-[#F2B705]/10 file:text-[#0E6B4C] dark:file:text-[#F2B705] hover:file:bg-[#0E6B4C]/20 transition">
+                                        <p class="text-[10px] text-slate-400 mt-1">Photo showing the barcode clearly.
+                                        </p>
+                                        <div wire:loading wire:target="barcodeImageUpload"
+                                            class="mt-2 text-xs font-medium text-[#0E6B4C]">Uploading...</div>
+                                        @if ($barcodeImageUpload)
+                                            <img src="{{ $barcodeImageUpload->temporaryUrl() }}"
+                                                class="mt-3 h-20 w-20 rounded-lg object-cover border border-slate-200 dark:border-[#2E2E32]">
+                                        @endif
+                                        @error('barcodeImageUpload')
+                                            <p class="mt-1.5 text-xs font-semibold text-[#E2601F]">{{ $message }}</p>
+                                        @enderror
+                                    </div>
+                                @endif
                             </div>
 
                             <div>
@@ -495,10 +549,11 @@ new #[Title('Scan / Add Product')] class extends Component {
                     </div>
 
                     <!-- Actions -->
-                    <div class="flex items-center gap-3 pt-4">
+                    <div class="flex items-center gap-3 pt-4 border-t border-slate-200 dark:border-[#2E2E32]">
                         <button type="submit" wire:loading.attr="disabled"
                             class="flex-1 py-3 px-4 bg-[#0E6B4C] hover:bg-opacity-90 text-white text-sm font-bold rounded-lg shadow-sm transition active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0E6B4C] dark:focus:ring-offset-[#1C1C1F]">
-                            <span wire:loading.remove>Save & Track Product</span>
+                            <span
+                                wire:loading.remove>{{ $isExistingGlobal ? 'Track Product' : 'Submit for Review & Track' }}</span>
                             <span wire:loading>Saving...</span>
                         </button>
                         <button type="button" wire:click="newScan"
@@ -564,9 +619,7 @@ new #[Title('Scan / Add Product')] class extends Component {
                     osc.frequency.value = 800;
                     osc.start();
                     setTimeout(() => osc.stop(), 100);
-                } catch (e) {
-                    // Audio context error ignored
-                }
+                } catch (e) {}
             },
 
             toggleCamera() {
@@ -604,7 +657,7 @@ new #[Title('Scan / Add Product')] class extends Component {
                                     if (this.isScanning) this.scanner.resume();
                                 }, 1500);
                             },
-                            () => {} // ignore stream errors
+                            () => {}
                         ).catch(err => {
                             this.cameraError = err.message || err;
                             this.isScanning = false;

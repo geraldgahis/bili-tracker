@@ -39,4 +39,19 @@ class Product extends Model
     {
         return $this->hasMany(PriceHistory::class);
     }
+
+    public function trackedByUsers(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'user_products', 'product_id', 'user_id')
+            ->withPivot([
+                'store_id', 
+                'custom_name', 
+                'purchase_unit', 
+                'pieces_per_bulk', 
+                'price', 
+                'is_tracked', 
+                'user_notes'
+            ])
+            ->withTimestamps();
+    }
 }

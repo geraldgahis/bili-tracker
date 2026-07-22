@@ -1,9 +1,17 @@
 <?php
 
 use Livewire\Component;
+use Illuminate\Support\Facades\Auth;
 
 new class extends Component {
-    //
+    public function logout()
+    {
+        Auth::logout();
+        session()->invalidate();
+        session()->regenerateToken();
+
+        return $this->redirect('/', navigate: true);
+    }
 };
 ?>
 
@@ -51,19 +59,18 @@ new class extends Component {
 
             <!-- Far Right: Actions & Dark Mode Toggler -->
             <div class="flex items-center gap-3">
+
                 <!-- Dark Mode Toggler -->
                 <button type="button" @click="darkMode = !darkMode"
                     class="p-2 rounded-full bg-slate-50 dark:bg-[#101012] border border-slate-200 dark:border-[#2E2E32] text-slate-500 dark:text-[#A1A1AA] hover:text-slate-900 dark:hover:text-white transition shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0E6B4C] dark:focus:ring-offset-[#1C1C1F]"
                     aria-label="Toggle Dark Mode">
 
-                    <!-- Sun Icon -->
                     <svg x-show="darkMode" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"
                         viewBox="0 0 24 24" x-cloak>
                         <path stroke-linecap="round" stroke-linejoin="round"
                             d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m12.728 12.728l.707.707M12 8a4 4 0 100 8 4 4 0 000-8z" />
                     </svg>
 
-                    <!-- Moon Icon -->
                     <svg x-show="!darkMode" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2"
                         viewBox="0 0 24 24" x-cloak>
                         <path stroke-linecap="round" stroke-linejoin="round"
@@ -71,26 +78,68 @@ new class extends Component {
                     </svg>
                 </button>
 
-                <!-- Profile Dropdown Placeholder (Optional, just an avatar for layout completeness) -->
-                <button type="button"
-                    class="hidden sm:block w-8 h-8 rounded-full border border-slate-200 dark:border-[#2E2E32] bg-slate-100 dark:bg-[#101012] overflow-hidden focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0E6B4C] dark:focus:ring-offset-[#1C1C1F]">
-                    <svg class="w-full h-full text-slate-400 dark:text-[#52525B] mt-1" fill="currentColor"
-                        viewBox="0 0 24 24">
-                        <path
-                            d="M24 20.993V24H0v-2.996A14.977 14.977 0 0112.004 15c4.904 0 9.26 2.354 11.996 5.993zM16.002 8.999a4 4 0 11-8 0 4 4 0 018 0z" />
-                    </svg>
-                </button>
+                <!-- Profile Dropdown (Desktop) -->
+                @auth
+                    <div x-data="{ profileOpen: false }" class="relative hidden sm:block">
+                        <button type="button" @click="profileOpen = !profileOpen" @click.away="profileOpen = false"
+                            class="w-8 h-8 rounded-full border border-slate-200 dark:border-[#2E2E32] bg-slate-100 dark:bg-[#101012] overflow-hidden focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#0E6B4C] dark:focus:ring-offset-[#1C1C1F] transition-shadow">
+                            <svg class="w-full h-full text-slate-400 dark:text-[#52525B] mt-1" fill="currentColor"
+                                viewBox="0 0 24 24">
+                                <path
+                                    d="M24 20.993V24H0v-2.996A14.977 14.977 0 0112.004 15c4.904 0 9.26 2.354 11.996 5.993zM16.002 8.999a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                        </button>
+
+                        <!-- Dropdown Menu -->
+                        <div x-show="profileOpen" x-cloak x-transition:enter="transition ease-out duration-100"
+                            x-transition:enter-start="transform opacity-0 scale-95"
+                            x-transition:enter-end="transform opacity-100 scale-100"
+                            x-transition:leave="transition ease-in duration-75"
+                            x-transition:leave-start="transform opacity-100 scale-100"
+                            x-transition:leave-end="transform opacity-0 scale-95"
+                            class="absolute right-0 mt-2 w-48 bg-white dark:bg-[#1C1C1F] border border-slate-200 dark:border-[#2E2E32] rounded-xl shadow-lg py-1 z-50 overflow-hidden">
+
+                            <div class="px-4 py-2 border-b border-slate-100 dark:border-[#2E2E32]">
+                                <p
+                                    class="text-[10px] font-bold text-slate-500 dark:text-[#A1A1AA] uppercase tracking-wider">
+                                    Signed in as</p>
+                                <p class="text-sm font-bold text-slate-900 dark:text-white truncate mt-0.5">
+                                    {{ Auth::user()->name }}</p>
+                            </div>
+
+                            <div class="py-1">
+                                <a href="/profile" wire:navigate
+                                    class="block px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#2E2E32] transition-colors">
+                                    Account Settings
+                                </a>
+
+                                <!-- Admin Only Links -->
+                                @if (Auth::user()->is_admin)
+                                    <a href="/approvals" wire:navigate
+                                        class="block px-4 py-2 text-sm font-bold text-[#E2601F] hover:bg-slate-50 dark:hover:bg-[#2E2E32] transition-colors">
+                                        Pending Approvals
+                                    </a>
+                                @endif
+                            </div>
+
+                            <div class="border-t border-slate-100 dark:border-[#2E2E32] pt-1">
+                                <button wire:click="logout"
+                                    class="w-full text-left block px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#2E2E32] transition-colors">
+                                    Sign Out
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                @endauth
 
                 <!-- Mobile menu button -->
                 <button type="button" @click="mobileMenuOpen = !mobileMenuOpen"
                     class="md:hidden p-2 rounded-lg text-slate-500 dark:text-[#A1A1AA] hover:bg-slate-100 dark:hover:bg-[#2E2E32] focus:outline-none focus:ring-2 focus:ring-[#0E6B4C] transition">
                     <span class="sr-only">Open main menu</span>
-                    <!-- Hamburger -->
                     <svg x-show="!mobileMenuOpen" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2"
                         viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
-                    <!-- Close (X) -->
                     <svg x-show="mobileMenuOpen" x-cloak class="w-5 h-5" fill="none" stroke="currentColor"
                         stroke-width="2" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -121,21 +170,33 @@ new class extends Component {
                 Stores
             </a>
 
-            <!-- Mobile User Profile Link -->
-            <div class="pt-4 mt-2 border-t border-slate-100 dark:border-[#2E2E32]">
-                <a href="/profile" wire:navigate
-                    class="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#2E2E32]">
-                    <div
-                        class="w-8 h-8 rounded-full border border-slate-200 dark:border-[#2E2E32] bg-slate-100 dark:bg-[#101012] overflow-hidden flex items-center justify-center">
-                        <svg class="w-5 h-5 text-slate-400 dark:text-[#52525B] mt-1" fill="currentColor"
-                            viewBox="0 0 24 24">
-                            <path
-                                d="M24 20.993V24H0v-2.996A14.977 14.977 0 0112.004 15c4.904 0 9.26 2.354 11.996 5.993zM16.002 8.999a4 4 0 11-8 0 4 4 0 018 0z" />
-                        </svg>
+            @auth
+                <!-- Mobile User Profile Section -->
+                <div class="pt-4 mt-2 border-t border-slate-100 dark:border-[#2E2E32]">
+
+                    <div class="px-3 mb-3">
+                        <p class="text-sm font-bold text-slate-900 dark:text-white">{{ Auth::user()->name }}</p>
+                        <p class="text-xs font-medium text-slate-500 dark:text-[#A1A1AA]">{{ Auth::user()->email }}</p>
                     </div>
-                    My Account
-                </a>
-            </div>
+
+                    <a href="/profile" wire:navigate
+                        class="block px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#2E2E32]">
+                        Account Settings
+                    </a>
+
+                    @if (Auth::user()->is_admin)
+                        <a href="/approvals" wire:navigate
+                            class="block px-3 py-2.5 rounded-lg text-sm font-bold text-[#E2601F] hover:bg-slate-50 dark:hover:bg-[#2E2E32]">
+                            Pending Approvals
+                        </a>
+                    @endif
+
+                    <button type="button" wire:click="logout"
+                        class="w-full text-left block px-3 py-2.5 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-[#2E2E32]">
+                        Sign Out
+                    </button>
+                </div>
+            @endauth
         </div>
     </div>
 </nav>

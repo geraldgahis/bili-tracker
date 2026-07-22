@@ -14,10 +14,18 @@ return new class extends Migration
         Schema::create('products', function (Blueprint $table) {
             $table->id();
             $table->string('barcode')->unique()->index(); 
-            $table->string('name'); // e.g., Coke Original, Century Tuna Flakes in Oil
+            $table->string('name'); 
             $table->text('description')->nullable();
-            $table->string('size')->nullable(); // e.g., 80ml, 155g, 1kg, 1L, 25g sachet
+            $table->string('size')->nullable(); 
+            
+            // Product Image
             $table->string('image_path')->nullable(); 
+            
+            // ADD THIS: Barcode proof image uploaded by the user
+            $table->string('barcode_image_path')->nullable(); 
+            
+            // ADD THIS: Moderation status (pending, approved, rejected)
+            $table->string('status')->default('pending'); 
             
             $table->foreignId('category_id')->nullable()->constrained()->nullOnDelete();
             $table->foreignId('created_by')->nullable()->constrained('users')->nullOnDelete();

@@ -13,7 +13,7 @@ use Illuminate\Notifications\Notifiable;
 #[Fillable([
     'name',
     'email',
-    'password',
+    'password','is_admin'
 ])]
 #[Hidden([
     'password',
@@ -33,14 +33,16 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_admin' => 'boolean',
         ];
     }
 
     // Products this user is tracking
+    // Products this user is tracking personally
     public function trackedProducts(): BelongsToMany
     {
         return $this->belongsToMany(Product::class, 'user_products')
-            ->using(UserProduct::class) // Use our custom pivot class
+            ->using(UserProduct::class)
             ->withPivot([
                 'store_id', 'custom_name', 'purchase_unit', 
                 'pieces_per_bulk', 'price', 'is_tracked', 'user_notes'
@@ -48,7 +50,7 @@ class User extends Authenticatable
             ->withTimestamps();
     }
 
-    // Products this user originally registered globally
+    // Products this user originally submitted to the global catalog
     public function createdProducts(): HasMany
     {
         return $this->hasMany(Product::class, 'created_by');
