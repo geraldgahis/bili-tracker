@@ -12,15 +12,13 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('users', function (Blueprint $table) {
-            $table->uuid('id')->primary(); // Native PostgreSQL UUID
+            $table->id();
             $table->string('name');
             $table->string('email')->unique();
-            $table->timestampTz('email_verified_at')->nullable(); // Timezone-aware
+            $table->timestamp('email_verified_at')->nullable();
             $table->string('password');
-            $table->string('role')->default('user'); // 'admin' or 'user'
-            $table->boolean('is_active')->default(true);
             $table->rememberToken();
-            $table->timestampsTz(); // Timezone-aware timestamps
+            $table->timestamps();
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {

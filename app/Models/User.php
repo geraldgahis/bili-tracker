@@ -2,12 +2,11 @@
 
 namespace App\Models;
 
-// use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
-use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -15,8 +14,6 @@ use Illuminate\Notifications\Notifiable;
     'name',
     'email',
     'password',
-    'role',
-    'is_active',
 ])]
 #[Hidden([
     'password',
@@ -24,7 +21,7 @@ use Illuminate\Notifications\Notifiable;
 ])]
 class User extends Authenticatable
 {
-    use HasUuids, Notifiable;
+    use HasFactory, Notifiable;
 
     /**
      * Get the attributes that should be cast.
@@ -36,15 +33,29 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'is_active' => 'boolean',
         ];
     }
 
-    /**
-     * Helper check to see if the user is an administrator.
-     */
-    public function isAdmin(): bool
+    // Products this user is tracking
+    public function trackedProducts(): BelongsToMany
     {
-        return $this->role === 'admin';
+        return $this->belongsToMany(Product::class, 'user_products')
+            ->using(UserProduct::class) // Use our custom pivot class
+            ->withPivot([
+                'store_id', 'custom_name', 'purchase_unit', 
+                'pieces_per_bulk', 'price', 'is_tracked', 'user_notes'
+            ])
+            ->withTimestamps();
+    }
+
+    // Products this user originally registered globally
+    public function createdProducts(): HasMany
+    {
+        return $this->hasMany(Product::class, 'created_by');
+    }
+
+    public function priceHistories(): HasMany
+    {
+        return $this->hasMany(PriceHistory::class);
     }
 }
